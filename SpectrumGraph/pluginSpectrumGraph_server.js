@@ -1,5 +1,5 @@
 /*
-    Spectrum Graph v1.1.6 by AAD
+    Spectrum Graph v1.1.7 by AAD
     https://github.com/AmateurAudioDude/FM-DX-Webserver-Plugin-Spectrum-Graph
 
     //// Server-side code ////
@@ -56,7 +56,7 @@ function customRouter() {
     endpointsRouter.get('/spectrum-graph-plugin', (req, res) => {
         const pluginHeader = req.get('X-Plugin-Name') || 'NoPlugin';
 
-        if (pluginHeader === 'SpectrumPlugin') {
+        if (pluginHeader === 'SpectrumGraphPlugin') {
             ipAddress = req.headers['x-forwarded-for']?.split(',')[0] || req.connection.remoteAddress;
             res.json(spectrumData);
         } else {
@@ -78,16 +78,18 @@ let rescanDelay = 3; // seconds
 let tuningRange = 0; // MHz
 let tuningStepSize = 100; // kHz
 let tuningBandwidth = 56; // kHz
+let showIncompleteData = false; // Display incomplete data
 
 const defaultConfig = {
     rescanDelay: 3,
     tuningRange: 0,
     tuningStepSize: 100,
-    tuningBandwidth: 56
+    tuningBandwidth: 56,
+    showIncompleteData: false
 };
 
 // Order of keys in configuration file
-const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth'];
+const configKeyOrder = ['rescanDelay', 'tuningRange', 'tuningStepSize', 'tuningBandwidth', 'showIncompleteData'];
 
 // Function to ensure folder and file exist
 function checkConfigFile() {
@@ -128,6 +130,7 @@ function loadConfigFile(isReloaded) {
             tuningRange = !isNaN(Number(config.tuningRange)) ? Number(config.tuningRange) : defaultConfig.tuningRange;
             tuningStepSize = !isNaN(Number(config.tuningStepSize)) ? Number(config.tuningStepSize) : defaultConfig.tuningStepSize;
             tuningBandwidth = !isNaN(Number(config.tuningBandwidth)) ? Number(config.tuningBandwidth) : defaultConfig.tuningBandwidth;
+            showIncompleteData = typeof config.showIncompleteData === 'boolean' ? config.showIncompleteData : defaultConfig.showIncompleteData;
 
             // Save the updated config if there were any modifications
             if (configModified) {
@@ -361,11 +364,17 @@ datahandlerReceived.handleData = function(wss, receivedData, rdsWss) {
                 // Possibly interrupted
                 if (uValue && uValue.endsWith(',')) {
                     isScanHalted(true);
-                    uValue = null;
+                    // uValue.slice or null
+                    if (showIncompleteData) {
+                        uValue = uValue.slice(0, -1);
+                    } else {
+                        uValue = null;
+                    }
                     setTimeout(() => {
                         // Update endpoint
-                        const newData = { [`sd${antennaCurrent}`]: null };
+                        const newData = { [`sd${antennaCurrent}`]: uValue }; // uValue or null
                         updateSpectrumData(newData);
+                        logWarn(`Spectrum Graph: Spectrum scan appears incomplete.`);
                     }, 200);
                 }
 
@@ -726,11 +735,17 @@ function startScan(command) {
             // Possibly interrupted
             if (uValue && uValue.endsWith(',')) {
                 isScanHalted(true);
-                uValue = null;
+                // uValue.slice or null
+                if (showIncompleteData) {
+                    uValue = uValue.slice(0, -1);
+                } else {
+                    uValue = null;
+                }
                 setTimeout(() => {
                     // Update endpoint
-                    const newData = { sd: null };
+                    const newData = { sd: uValue }; // uValue or null
                     updateSpectrumData(newData);
+                    logWarn(`Spectrum Graph: Spectrum scan appears incomplete.`);
                 }, 200);
             }
             if (debug) console.log(uValue);
@@ -754,7 +769,7 @@ function startScan(command) {
             });
             extraSocket.send(messageClient);
         } catch (error) {
-            logError(`Spectrum Graph scan interrupted, invalid 'U' value, error:`, error.message);
+            logError(`Spectrum Graph scan incomplete, invalid 'U' value, error:`, error.message);
         }
         isScanHalted(true);
     })();
